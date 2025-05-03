@@ -5,12 +5,12 @@ import toast, { Toaster } from 'react-hot-toast';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
-import TextField from '@mui/material/TextField';
-import { th } from 'date-fns/locale';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import Tabs from '@mui/material/Tabs';
 import Tab from '@mui/material/Tab';
 import Box from '@mui/material/Box';
+import { th } from 'date-fns/locale';
+import { Plus, Settings, Edit, Trash2, X, Check, Loader2 } from 'lucide-react';
 
 const supabase = createClient(
   'https://xvlekplhzjkvhkweuffa.supabase.co',
@@ -18,26 +18,49 @@ const supabase = createClient(
 );
 
 const theme = createTheme({
-  typography: { fontSize: 16 },
+  typography: { fontFamily: 'Poppins, sans-serif', fontSize: 14 },
   components: {
     MuiTextField: {
       styleOverrides: {
-        root: { '& .MuiInputBase-root': { borderRadius: '8px' } },
+        root: {
+          '& .MuiInputBase-root': {
+            borderRadius: '8px',
+            fontSize: '14px',
+            padding: '8px',
+            backgroundColor: '#fff',
+          },
+          '& .MuiOutlinedInput-notchedOutline': {
+            borderColor: '#d1d5db',
+          },
+          '&:hover .MuiOutlinedInput-notchedOutline': {
+            borderColor: '#6B21A8',
+          },
+          '& .Mui-focused .MuiOutlinedInput-notchedOutline': {
+            borderColor: '#6B21A8',
+            borderWidth: '2px',
+          },
+        },
       },
     },
     MuiTabs: {
       styleOverrides: {
-        root: { borderBottom: '1px solid #e5e7eb' },
-        indicator: { backgroundColor: '#7c3aed' },
+        root: { borderBottom: 'none' },
+        indicator: {
+          backgroundColor: '#6B21A8',
+          height: '3px',
+        },
       },
     },
     MuiTab: {
       styleOverrides: {
         root: {
-          fontSize: '16px',
-          fontWeight: 500,
+          fontSize: '14px',
+          fontWeight: 600,
           textTransform: 'none',
-          '&.Mui-selected': { color: '#7c3aed' },
+          color: '#6b7280',
+          padding: '12px 16px',
+          '&.Mui-selected': { color: '#6B21A8' },
+          '&:hover': { color: '#6B21A8', backgroundColor: '#f3f4f6' },
         },
       },
     },
@@ -46,14 +69,22 @@ const theme = createTheme({
 
 // TabPanel Component
 const TabPanel = memo(({ children, value, index }) => (
-  <div role="tabpanel" hidden={value !== index}>
-    {value === index && <Box sx={{ p: 3 }}>{children}</Box>}
+  <div role="tabpanel" hidden={value !== index} id={`tabpanel-${index}`}>
+    {value === index && <Box sx={{ p: 2 }}>{children}</Box>}
   </div>
 ));
+
+// Loading Spinner Component
+const LoadingSpinner = () => (
+  <div className="flex items-center justify-center">
+    <Loader2 className="animate-spin text-purple-600" size={24} />
+  </div>
+);
 
 export default function Home() {
   const [rooms, setRooms] = useState([]);
   const [newRoom, setNewRoom] = useState('');
+  const [newRoomCategory, setNewRoomCategory] = useState('upper');
   const [rates, setRates] = useState({ electricity: 4, water: 15 });
   const [readings, setReadings] = useState({});
   const [selectedRoom, setSelectedRoom] = useState(null);
@@ -69,6 +100,8 @@ export default function Home() {
   const [calculationMonths, setCalculationMonths] = useState({});
   const [calculationResult, setCalculationResult] = useState(null);
   const [tabValue, setTabValue] = useState(0);
+  const [calculationMode, setCalculationMode] = useState('range');
+  const [isLoading, setIsLoading] = useState(false);
 
   // Fetch rooms, rates, and history
   useEffect(() => {
@@ -77,21 +110,24 @@ export default function Home() {
   }, []);
 
   async function fetchRooms() {
+    setIsLoading(true);
     const { data, error } = await supabase.from('rooms').select('*');
     if (error) {
-      toast.error('ไม่สามารถโหลดข้อมูลห้องได้');
+      toast.error('ไม่สามารถโหลดข้อมูลห้องได้', { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
     setRooms(data || []);
     if (data) {
       data.forEach((room) => fetchRoomHistory(room.id));
     }
+    setIsLoading(false);
   }
 
   async function fetchRates() {
     const { data, error } = await supabase.from('rates').select('*').single();
     if (error) {
-      toast.error('ไม่สามารถโหลดอัตราบริการได้');
+      toast.error('ไม่สามารถโหลดอัตราบริการได้', { icon: <X size={16} /> });
       return;
     }
     if (data) setRates(data);
@@ -104,7 +140,7 @@ export default function Home() {
       .eq('room_id', roomId)
       .order('month', { ascending: false });
     if (error) {
-      toast.error('ไม่สามารถโหลดประวัติการบันทึกได้');
+      toast.error('ไม่สามารถโหลดประวัติการบันทึกได้', { icon: <X size={16} /> });
       return;
     }
     setRoomHistory((prev) => ({ ...prev, [roomId]: data || [] }));
@@ -113,51 +149,64 @@ export default function Home() {
   // Add new room
   async function addRoom() {
     if (!newRoom) {
-      toast.error('กรุณากรอกชื่อห้อง');
+      toast.error('กรุณากรอกชื่อห้อง', { icon: <X size={16} /> });
       return;
     }
+    if (!newRoomCategory) {
+      toast.error('กรุณาเลือกหมวดหมู่ห้อง', { icon: <X size={16} /> });
+      return;
+    }
+    setIsLoading(true);
     const { data, error } = await supabase
       .from('rooms')
-      .insert({ name: newRoom })
+      .insert({ name: newRoom, category: newRoomCategory })
       .select();
     if (error) {
-      toast.error('ไม่สามารถเพิ่มห้องได้');
+      toast.error('ไม่สามารถเพิ่มห้องได้', { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
     setRooms([...rooms, data[0]]);
     setNewRoom('');
+    setNewRoomCategory('upper');
     setShowAddRoomModal(false);
     fetchRoomHistory(data[0].id);
-    toast.success(`เพิ่มห้อง ${data[0].name} สำเร็จ`);
+    toast.success(`เพิ่มห้อง ${data[0].name} สำเร็จ`, { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
   // Update room name
   async function updateRoom(roomId, newName) {
     if (!newName) {
-      toast.error('กรุณากรอกชื่อห้อง');
+      toast.error('กรุณากรอกชื่อห้อง', { icon: <X size={16} /> });
       return;
     }
+    setIsLoading(true);
     const { data, error } = await supabase
       .from('rooms')
       .update({ name: newName })
       .eq('id', roomId)
       .select();
     if (error) {
-      toast.error('ไม่สามารถแก้ไขชื่อห้องได้');
+      toast.error('ไม่สามารถแก้ไขชื่อห้องได้', { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
     setRooms(rooms.map((room) => (room.id === roomId ? data[0] : room)));
     setEditingRoom(null);
     setEditRoomName('');
-    toast.success(`แก้ไขชื่อห้องเป็น ${newName} สำเร็จ`);
+    toast.success(`แก้ไขชื่อห้องเป็น ${newName} สำเร็จ`, { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
   // Delete room and associated readings
   async function deleteRoom(roomId) {
+    setIsLoading(true);
     const { error: readingsError } = await supabase.from('readings').delete().eq('room_id', roomId);
     const { error: roomError } = await supabase.from('rooms').delete().eq('id', roomId);
     if (readingsError || roomError) {
-      toast.error('ไม่สามารถลบห้องได้');
+      toast.error('ไม่สามารถลบห้องได้', { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
     const deletedRoom = rooms.find((room) => room.id === roomId);
@@ -170,29 +219,34 @@ export default function Home() {
     setSelectedRoom(null);
     setEditingRoom(null);
     setDeleteConfirm(null);
-    toast.success(`ลบห้อง ${deletedRoom.name} สำเร็จ`);
+    toast.success(`ลบห้อง ${deletedRoom.name} สำเร็จ`, { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
   // Update rates
   async function updateRates(newRates) {
+    setIsLoading(true);
     const { error } = await supabase
       .from('rates')
       .upsert({ id: 1, ...newRates });
     if (error) {
-      toast.error('ไม่สามารถบันทึกอัตราบริการได้');
+      toast.error('ไม่สามารถบันทึกอัตราบริการได้', { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
     setRates(newRates);
     setShowRatesModal(false);
-    toast.success('บันทึกอัตราบริการสำเร็จ');
+    toast.success('บันทึกอัตราบริการสำเร็จ', { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
   // Record meter reading
   async function recordReading(roomId, type, value, month) {
     if (!value || value < 0) {
-      toast.error(`กรุณากรอกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ที่ถูกต้อง`);
+      toast.error(`กรุณากรอกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ที่ถูกต้อง`, { icon: <X size={16} /> });
       return;
     }
+    setIsLoading(true);
     const { data: prevReading } = await supabase
       .from('readings')
       .select('value')
@@ -213,26 +267,29 @@ export default function Home() {
         value,
         month,
         usage,
-        cost
+        cost,
       });
 
     if (error) {
-      toast.error(`ไม่สามารถบันทึกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ได้`);
+      toast.error(`ไม่สามารถบันทึกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ได้`, { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
 
     fetchRoomHistory(roomId);
     setSelectedRoom(null);
     setSelectedMonth((prev) => ({ ...prev, [roomId]: null }));
-    toast.success(`บันทึกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}สำเร็จ`);
+    toast.success(`บันทึกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}สำเร็จ`, { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
   // Update meter reading
   async function updateReading(recordId, roomId, type, newValue, month) {
     if (!newValue || newValue < 0) {
-      toast.error(`กรุณากรอกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ที่ถูกต้อง`);
+      toast.error(`กรุณากรอกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ที่ถูกต้อง`, { icon: <X size={16} /> });
       return;
     }
+    setIsLoading(true);
     const { data: prevReading } = await supabase
       .from('readings')
       .select('value')
@@ -250,12 +307,13 @@ export default function Home() {
       .update({
         value: newValue,
         usage,
-        cost
+        cost,
       })
       .eq('id', recordId);
 
     if (error) {
-      toast.error(`ไม่สามารถแก้ไขหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ได้`);
+      toast.error(`ไม่สามารถแก้ไขหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ได้`, { icon: <X size={16} /> });
+      setIsLoading(false);
       return;
     }
 
@@ -275,11 +333,12 @@ export default function Home() {
         .from('readings')
         .update({
           usage: nextUsage,
-          cost: nextCost
+          cost: nextCost,
         })
         .eq('id', nextReading.id);
       if (nextError) {
-        toast.error('ไม่สามารถอัปเดตหน่วยเดือนถัดไปได้');
+        toast.error('ไม่สามารถอัปเดตหน่วยเดือนถัดไปได้', { icon: <X size={16} /> });
+        setIsLoading(false);
         return;
       }
     }
@@ -287,69 +346,132 @@ export default function Home() {
     fetchRoomHistory(roomId);
     setEditingRecord(null);
     setEditRecordValue('');
-    toast.success(`แก้ไขหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}สำเร็จ`);
+    toast.success(`แก้ไขหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}สำเร็จ`, { icon: <Check size={16} /> });
+    setIsLoading(false);
   }
 
-  // Calculate usage and cost between two months
+  // Calculate usage and cost
   async function calculateUsageAndCost(roomId) {
     const months = calculationMonths[roomId] || {};
-    const firstMonth = months.firstMonth;
-    const secondMonth = months.secondMonth;
+    setIsLoading(true);
+    if (calculationMode === 'single') {
+      const selectedMonth = months.singleMonth;
+      if (!selectedMonth) {
+        toast.error('กรุณาเลือกเดือน', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+      const monthStr = formatDateToMonthYear(selectedMonth);
+      const prevMonthStr = getPreviousMonth(monthStr);
 
-    if (!firstMonth || !secondMonth) {
-      toast.error('กรุณาเลือกทั้งสองเดือน');
-      return;
+      const { data: currentReadings, error: currentError } = await supabase
+        .from('readings')
+        .select('type, value')
+        .eq('room_id', roomId)
+        .eq('month', monthStr);
+
+      const { data: prevReadings, error: prevError } = await supabase
+        .from('readings')
+        .select('type, value')
+        .eq('room_id', roomId)
+        .eq('month', prevMonthStr);
+
+      if (currentError || prevError) {
+        toast.error('ไม่สามารถดึงข้อมูลหน่วยได้', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!currentReadings?.length) {
+        toast.error('ไม่มีข้อมูลหน่วยสำหรับเดือนที่เลือก', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      const result = {
+        electricity: { usage: 0, cost: 0 },
+        water: { usage: 0, cost: 0 },
+        firstMonth: formatThaiMonth(monthStr),
+        secondMonth: null,
+      };
+
+      const currentElectricity = currentReadings.find((r) => r.type === 'electricity')?.value || 0;
+      const currentWater = currentReadings.find((r) => r.type === 'water')?.value || 0;
+      const prevElectricity = prevReadings?.find((r) => r.type === 'electricity')?.value || 0;
+      const prevWater = prevReadings?.find((r) => r.type === 'water')?.value || 0;
+
+      result.electricity.usage = currentElectricity - prevElectricity;
+      result.electricity.cost = result.electricity.usage * rates.electricity;
+      result.water.usage = currentWater - prevWater;
+      result.water.cost = result.water.usage * rates.water;
+
+      setCalculationResult(result);
+      toast.success('คำนวณค่าใช้จ่ายสำเร็จ', { icon: <Check size={16} /> });
+      setIsLoading(false);
+    } else {
+      const firstMonth = months.firstMonth;
+      const secondMonth = months.secondMonth;
+
+      if (!firstMonth || !secondMonth) {
+        toast.error('กรุณาเลือกทั้งสองเดือน', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      const firstMonthStr = formatDateToMonthYear(firstMonth);
+      const secondMonthStr = formatDateToMonthYear(secondMonth);
+
+      if (firstMonthStr >= secondMonthStr) {
+        toast.error('เดือนที่สองต้องมากกว่าเดือนแรก', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      const { data: firstReadings, error: firstError } = await supabase
+        .from('readings')
+        .select('type, value')
+        .eq('room_id', roomId)
+        .eq('month', firstMonthStr);
+
+      const { data: secondReadings, error: secondError } = await supabase
+        .from('readings')
+        .select('type, value')
+        .eq('room_id', roomId)
+        .eq('month', secondMonthStr);
+
+      if (firstError || secondError) {
+        toast.error('ไม่สามารถดึงข้อมูลหน่วยได้', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      if (!firstReadings?.length || !secondReadings?.length) {
+        toast.error('ไม่มีข้อมูลหน่วยสำหรับเดือนที่เลือก', { icon: <X size={16} /> });
+        setIsLoading(false);
+        return;
+      }
+
+      const result = {
+        electricity: { usage: 0, cost: 0 },
+        water: { usage: 0, cost: 0 },
+        firstMonth: formatThaiMonth(firstMonthStr),
+        secondMonth: formatThaiMonth(secondMonthStr),
+      };
+
+      const firstElectricity = firstReadings.find((r) => r.type === 'electricity')?.value || 0;
+      const firstWater = firstReadings.find((r) => r.type === 'water')?.value || 0;
+      const secondElectricity = secondReadings.find((r) => r.type === 'electricity')?.value || 0;
+      const secondWater = secondReadings.find((r) => r.type === 'water')?.value || 0;
+
+      result.electricity.usage = secondElectricity - firstElectricity;
+      result.electricity.cost = result.electricity.usage * rates.electricity;
+      result.water.usage = secondWater - firstWater;
+      result.water.cost = result.water.usage * rates.water;
+
+      setCalculationResult(result);
+      toast.success('คำนวณค่าใช้จ่ายสำเร็จ', { icon: <Check size={16} /> });
+      setIsLoading(false);
     }
-
-    const firstMonthStr = formatDateToMonthYear(firstMonth);
-    const secondMonthStr = formatDateToMonthYear(secondMonth);
-
-    if (firstMonthStr >= secondMonthStr) {
-      toast.error('เดือนที่สองต้องมากกว่าเดือนแรก');
-      return;
-    }
-
-    const { data: firstReadings, error: firstError } = await supabase
-      .from('readings')
-      .select('type, value')
-      .eq('room_id', roomId)
-      .eq('month', firstMonthStr);
-
-    const { data: secondReadings, error: secondError } = await supabase
-      .from('readings')
-      .select('type, value')
-      .eq('room_id', roomId)
-      .eq('month', secondMonthStr);
-
-    if (firstError || secondError) {
-      toast.error('ไม่สามารถดึงข้อมูลหน่วยได้');
-      return;
-    }
-
-    if (!firstReadings?.length || !secondReadings?.length) {
-      toast.error('ไม่มีข้อมูลหน่วยสำหรับเดือนที่เลือก');
-      return;
-    }
-
-    const result = {
-      electricity: { usage: 0, cost: 0 },
-      water: { usage: 0, cost: 0 },
-      firstMonth: formatThaiMonth(firstMonthStr),
-      secondMonth: formatThaiMonth(secondMonthStr),
-    };
-
-    const firstElectricity = firstReadings.find((r) => r.type === 'electricity')?.value || 0;
-    const firstWater = firstReadings.find((r) => r.type === 'water')?.value || 0;
-    const secondElectricity = secondReadings.find((r) => r.type === 'electricity')?.value || 0;
-    const secondWater = secondReadings.find((r) => r.type === 'water')?.value || 0;
-
-    result.electricity.usage = secondElectricity - firstElectricity;
-    result.electricity.cost = result.electricity.usage * rates.electricity;
-    result.water.usage = secondWater - firstWater;
-    result.water.cost = result.water.usage * rates.water;
-
-    setCalculationResult(result);
-    toast.success('คำนวณค่าใช้จ่ายสำเร็จ');
   }
 
   // Format month to Thai with Buddhist Era
@@ -367,7 +489,7 @@ export default function Home() {
       'กันยายน',
       'ตุลาคม',
       'พฤศจิกายน',
-      'ธันวาคม'
+      'ธันวาคม',
     ];
     return `${thaiMonths[parseInt(monthNum) - 1]} ${parseInt(year) + 543}`;
   }
@@ -394,17 +516,521 @@ export default function Home() {
     return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
   }
 
+  // Filter rooms by category
+  const upperRooms = rooms.filter((room) => room.category === 'upper');
+  const lowerRooms = rooms.filter((room) => room.category === 'lower');
+
+  // Render room card
+  const renderRoomCard = (room) => (
+    <div
+      key={room.id}
+      className={`bg-white rounded-xl shadow-sm p-4 transition transform hover:scale-105 hover:shadow-md ${
+        selectedRoom?.id === room.id ? 'border-2 border-purple-500' : ''
+      }`}
+    >
+      {editingRoom?.id === room.id ? (
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={editRoomName}
+            onChange={(e) => setEditRoomName(e.target.value)}
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => updateRoom(room.id, editRoomName)}
+              className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition transform hover:scale-105"
+              disabled={isLoading}
+            >
+              {isLoading ? <LoadingSpinner /> : 'บันทึก'}
+            </button>
+            <button
+              onClick={() => setEditingRoom(null)}
+              className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition transform hover:scale-105"
+              disabled={isLoading}
+            >
+              ยกเลิก
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div>
+          <div className="flex justify-between items-center">
+            <h3
+              onClick={() => setSelectedRoom(room)}
+              className="text-base font-semibold text-gray-800 cursor-pointer hover:text-purple-600"
+            >
+              {room.name}
+            </h3>
+            <span
+              className={`text-xs px-2 py-1 rounded-full ${
+                room.category === 'upper' ? 'bg-purple-100 text-purple-600' : 'bg-teal-100 text-teal-600'
+              }`}
+            >
+              {room.category === 'upper' ? 'ชั้นบน' : 'ชั้นล่าง'}
+            </span>
+          </div>
+          <div className="flex justify-between mt-2">
+            <p
+              onClick={() => setSelectedRoom(room)}
+              className="text-sm text-gray-500 cursor-pointer hover:text-gray-700"
+            >
+              แตะเพื่อบันทึกหน่วย
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  setEditingRoom(room);
+                  setEditRoomName(room.name);
+                }}
+                className="text-purple-600 hover:text-purple-800"
+              >
+                <Edit size={16} />
+              </button>
+              <button
+                onClick={() => setDeleteConfirm(room)}
+                className="text-red-600 hover:text-red-800"
+              >
+                <Trash2 size={16} />
+              </button>
+            </div>
+          </div>
+          {roomHistory[room.id]?.length > 0 && (
+            <div className="mt-4">
+              <h4 className="text-sm font-semibold text-gray-600 mb-2">ประวัติการบันทึก</h4>
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs text-gray-600 table-fixed">
+                  <thead className="bg-gray-50 sticky top-0 z-10">
+                    <tr>
+                      <th className="py-2 px-3 text-left w-[40%]">เดือน</th>
+                      <th className="py-2 px-3 text-left w-[20%]">ประเภท</th>
+                      <th className="py-2 px-3 text-right w-[20%]">หน่วย</th>
+                      <th className="py-2 px-3 text-right w-[20%]"></th>
+                    </tr>
+                  </thead>
+                </table>
+                <div className="max-h-50 overflow-y-auto">
+                  <table className="w-full text-xs text-gray-600 table-fixed">
+                    <tbody>
+                      {roomHistory[room.id].map((record, index) => (
+                        <tr
+                          key={record.id}
+                          className={`border-t ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100`}
+                        >
+                          {editingRecord?.id === record.id ? (
+                            <td colSpan={4} className="py-2 px-3">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  pattern="[0-9]*"
+                                  value={editRecordValue}
+                                  onChange={(e) => setEditRecordValue(e.target.value)}
+                                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                                />
+                                <button
+                                  onClick={() =>
+                                    updateReading(
+                                      record.id,
+                                      room.id,
+                                      record.type,
+                                      parseFloat(editRecordValue),
+                                      record.month
+                                    )
+                                  }
+                                  className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"
+                                  disabled={isLoading}
+                                >
+                                  {isLoading ? <LoadingSpinner /> : <Check size={16} />}
+                                </button>
+                                <button
+                                  onClick={() => setEditingRecord(null)}
+                                  className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"
+                                  disabled={isLoading}
+                                >
+                                  <X size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          ) : (
+                            <>
+                              <td className="py-2 px-3 w-[40%]">{formatThaiMonth(record.month)}</td>
+                              <td className="py-2 px-3 w-[20%]">
+                                <span
+                                  className={`flex items-center gap-1 ${
+                                    record.type === 'electricity' ? 'text-yellow-600' : 'text-blue-600'
+                                  }`}
+                                >
+                                  {record.type === 'electricity' ? '⚡️ไฟ' : '💧น้ำ'}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-right w-[20%]">
+                                {record.value.toFixed(2)}
+                              </td>
+                              <td className="py-2 px-3 text-right w-[20%]">
+                                <button
+                                  onClick={() => {
+                                    setEditingRecord(record);
+                                    setEditRecordValue(record.value.toString());
+                                  }}
+                                  className="text-purple-600 hover:text-purple-800"
+                                >
+                                  <Edit size={16} />
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+          {selectedRoom?.id === room.id && (
+            <div className="mt-4 bg-white rounded-xl shadow-inner p-4">
+              <Tabs
+                value={tabValue}
+                onChange={(e, newValue) => setTabValue(newValue)}
+                centered
+                sx={{ mb: 2 }}
+              >
+                <Tab label="บันทึกหน่วย" />
+                <Tab label="คำนวณค่าใช้จ่าย" />
+              </Tabs>
+              <TabPanel value={tabValue} index={0}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">หน่วยไฟฟ้า</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="หน่วยไฟฟ้า"
+                      value={readings[room.id]?.electricity || ''}
+                      onChange={(e) =>
+                        setReadings({
+                          ...readings,
+                          [room.id]: {
+                            ...readings[room.id],
+                            electricity: e.target.value,
+                          },
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">หน่วยน้ำ</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      placeholder="หน่วยน้ำ"
+                      value={readings[room.id]?.water || ''}
+                      onChange={(e) =>
+                        setReadings({
+                          ...readings,
+                          [room.id]: {
+                            ...readings[room.id],
+                            water: e.target.value,
+                          },
+                        })
+                      }
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">เดือน</label>
+                    <DatePicker
+                      value={selectedMonth[room.id] || null}
+                      onChange={(date) => setSelectedMonth({ ...selectedMonth, [room.id]: date })}
+                      views={['month', 'year']}
+                      format="MMMM yyyy"
+                      slotProps={{
+                        textField: {
+                          placeholder: 'เลือกเดือน',
+                          size: 'small',
+                          fullWidth: true,
+                          sx: {
+                            '& .MuiInputBase-root': {
+                              fontSize: '14px',
+                              padding: '8px',
+                            },
+                          },
+                        },
+                        popper: {
+                          placement: 'top-start',
+                          modifiers: [
+                            {
+                              name: 'preventOverflow',
+                              options: {
+                                rootBoundary: 'viewport',
+                                tether: false,
+                                altAxis: true,
+                              },
+                            },
+                          ],
+                        },
+                      }}
+                    />
+                  </div>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        const month = formatDateToMonthYear(selectedMonth[room.id] || new Date());
+                        if (readings[room.id]?.electricity) {
+                          recordReading(
+                            room.id,
+                            'electricity',
+                            parseFloat(readings[room.id].electricity),
+                            month
+                          );
+                        }
+                        if (readings[room.id]?.water) {
+                          recordReading(room.id, 'water', parseFloat(readings[room.id].water), month);
+                        }
+                      }}
+                      className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition transform hover:scale-105"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? <LoadingSpinner /> : 'บันทึกหน่วย'}
+                    </button>
+                    <button
+                      onClick={() => {
+                        setSelectedRoom(null);
+                        setSelectedMonth((prev) => ({ ...prev, [room.id]: null }));
+                        setCalculationMonths((prev) => ({ ...prev, [room.id]: null }));
+                        setCalculationResult(null);
+                        setTabValue(0);
+                      }}
+                      className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition transform hover:scale-105"
+                      disabled={isLoading}
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                </div>
+              </TabPanel>
+              <TabPanel value={tabValue} index={1}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-2">โหมดการคำนวณ</label>
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="calculationMode"
+                          value="single"
+                          checked={calculationMode === 'single'}
+                          onChange={() => setCalculationMode('single')}
+                          className="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-700">คำนวณเดือนเดียว</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="calculationMode"
+                          value="range"
+                          checked={calculationMode === 'range'}
+                          onChange={() => setCalculationMode('range')}
+                          className="w-4 h-4 text-purple-600 border-gray-300 focus:ring-purple-500"
+                        />
+                        <span className="text-sm text-gray-700">คำนวณช่วงเดือน</span>
+                      </label>
+                    </div>
+                  </div>
+                  {calculationMode === 'single' ? (
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">เดือน</label>
+                      <DatePicker
+                        value={calculationMonths[room.id]?.singleMonth || null}
+                        onChange={(date) =>
+                          setCalculationMonths({
+                            ...calculationMonths,
+                            [room.id]: {
+                              ...calculationMonths[room.id],
+                              singleMonth: date,
+                            },
+                          })
+                        }
+                        views={['month', 'year']}
+                        format="MMMM yyyy"
+                        slotProps={{
+                          textField: {
+                            placeholder: 'เลือกเดือน',
+                            size: 'small',
+                            fullWidth: true,
+                            sx: {
+                              '& .MuiInputBase-root': {
+                                fontSize: '14px',
+                                padding: '8px',
+                              },
+                            },
+                          },
+                          popper: {
+                            placement: 'top-start',
+                            modifiers: [
+                              {
+                                name: 'preventOverflow',
+                                options: {
+                                  rootBoundary: 'viewport',
+                                  tether: false,
+                                  altAxis: true,
+                                },
+                              },
+                            ],
+                          },
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">เดือนแรก</label>
+                        <DatePicker
+                          value={calculationMonths[room.id]?.firstMonth || null}
+                          onChange={(date) =>
+                            setCalculationMonths({
+                              ...calculationMonths,
+                              [room.id]: {
+                                ...calculationMonths[room.id],
+                                firstMonth: date,
+                              },
+                            })
+                          }
+                          views={['month', 'year']}
+                          format="MMMM yyyy"
+                          slotProps={{
+                            textField: {
+                              placeholder: 'เลือกเดือนแรก',
+                              size: 'small',
+                              fullWidth: true,
+                              sx: {
+                                '& .MuiInputBase-root': {
+                                  fontSize: '14px',
+                                  padding: '8px',
+                                },
+                              },
+                            },
+                            popper: {
+                              placement: 'top-start',
+                              modifiers: [
+                                {
+                                  name: 'preventOverflow',
+                                  options: {
+                                    rootBoundary: 'viewport',
+                                    tether: false,
+                                    altAxis: true,
+                                  },
+                                },
+                              ],
+                            },
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">เดือนที่สอง</label>
+                        <DatePicker
+                          value={calculationMonths[room.id]?.secondMonth || null}
+                          onChange={(date) =>
+                            setCalculationMonths({
+                              ...calculationMonths,
+                              [room.id]: {
+                                ...calculationMonths[room.id],
+                                secondMonth: date,
+                              },
+                            })
+                          }
+                          views={['month', 'year']}
+                          format="MMMM yyyy"
+                          slotProps={{
+                            textField: {
+                              placeholder: 'เลือกเดือนที่สอง',
+                              size: 'small',
+                              fullWidth: true,
+                              sx: {
+                                '& .MuiInputBase-root': {
+                                  fontSize: '14px',
+                                  padding: '8px',
+                                },
+                              },
+                            },
+                            popper: {
+                              placement: 'top-start',
+                              modifiers: [
+                                {
+                                  name: 'preventOverflow',
+                                  options: {
+                                    rootBoundary: 'viewport',
+                                    tether: false,
+                                    altAxis: true,
+                                  },
+                                },
+                              ],
+                            },
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                  <button
+                    onClick={() => calculateUsageAndCost(room.id)}
+                    className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 transition transform hover:scale-105"
+                    disabled={isLoading}
+                  >
+                    {isLoading ? <LoadingSpinner /> : 'คำนวณ'}
+                  </button>
+                  {calculationResult && (
+                    <div className="bg-gray-50 p-4 rounded-lg">
+                      <h4 className="text-sm font-semibold text-gray-600 mb-2">
+                        ผลลัพธ์:{' '}
+                        {calculationMode === 'single'
+                          ? calculationResult.firstMonth
+                          : `${calculationResult.firstMonth} ถึง ${calculationResult.secondMonth}`}
+                      </h4>
+                      <div className="space-y-2">
+                        <p className="text-sm text-gray-700">
+                          <span className="text-yellow-600">⚡️ ไฟฟ้า:</span> ใช้{' '}
+                          {calculationResult.electricity.usage.toFixed(2)} หน่วย, ค่าใช้จ่าย{' '}
+                          {calculationResult.electricity.cost.toFixed(2)} บาท
+                        </p>
+                        <p className="text-sm text-gray-700">
+                          <span className="text-blue-600">💧 น้ำ:</span> ใช้{' '}
+                          {calculationResult.water.usage.toFixed(2)} หน่วย, ค่าใช้จ่าย{' '}
+                          {calculationResult.water.cost.toFixed(2)} บาท
+                        </p>
+                        <p className="text-sm text-gray-700 font-semibold">
+                          <span className="text-green-600">💸 รวมทั้งหมด:</span>{' '}
+                          {(calculationResult.electricity.cost + calculationResult.water.cost).toFixed(2)}{' '}
+                          บาท
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </TabPanel>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <ThemeProvider theme={theme}>
       <LocalizationProvider dateAdapter={AdapterDateFns} adapterLocale={th}>
-        <div className="container mx-auto p-3 sm:p-4 bg-gray-100 min-h-screen">
+        <div className="min-h-screen bg-gray-100 font-poppins">
           <Toaster
-            position="top-center"
+            position="bottom-center"
             toastOptions={{
               style: {
                 fontSize: '14px',
                 padding: '8px 16px',
                 borderRadius: '8px',
+                boxShadow: '0 4px 6px rgba(0,0,0,0.1)',
               },
               success: {
                 style: {
@@ -420,541 +1046,195 @@ export default function Home() {
               },
             }}
           />
-          <h1 className="text-xl sm:text-2xl font-bold text-center mb-4 sm:mb-6 text-gray-800">
-            ระบบคิดค่าไฟและค่าน้ำ
-          </h1>
-
-          {/* Add Room and Set Rates Buttons */}
-          <div className="flex justify-between mb-4 sm:mb-6">
-            <button
-              onClick={() => setShowAddRoomModal(true)}
-              className="bg-blue-600 text-white p-2 rounded-full hover:bg-blue-700 transition"
-              title="เพิ่มห้องใหม่"
-            >
-              +
-            </button>
-            <button
-              onClick={() => setShowRatesModal(true)}
-              className="bg-green-600 text-white p-2 rounded-full hover:bg-green-700 transition"
-              title="กำหนดราคาต่อหน่วย"
-            >
-              🛠️
-            </button>
-          </div>
-
-          {/* Add Room Modal */}
-          {showAddRoomModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-4 w-full max-w-xs">
-                <h3 className="text-base font-semibold text-gray-800 mb-3">เพิ่มห้องใหม่</h3>
-                <input
-                  type="text"
-                  value={newRoom}
-                  onChange={(e) => setNewRoom(e.target.value)}
-                  placeholder="ชื่อห้อง (เช่น ห้อง 101)"
-                  className="border border-gray-300 rounded-md p-2 w-full mb-3 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
-                <div className="flex gap-3">
-                  <button
-                    onClick={addRoom}
-                    className="bg-blue-600 text-white p-2 rounded-md flex-1 hover:bg-blue-700 transition"
-                  >
-                    บันทึก
-                  </button>
+          <header className="bg-gradient-to-r from-purple-600 to-teal-500 text-white py-6 shadow-md">
+            <h1 className="text-2xl font-bold text-center">ระบบคิดค่าไฟและค่าน้ำ</h1>
+          </header>
+          <div className="container mx-auto p-4">
+            <div className="flex justify-between mb-6">
+              <button
+                onClick={() => setShowAddRoomModal(true)}
+                className="flex items-center gap-2 bg-purple-600 text-white px-4 py-2 rounded-lg hover:bg-purple-700 transition transform hover:scale-105"
+                disabled={isLoading}
+              >
+                <Plus size={16} /> เพิ่มห้อง
+              </button>
+              <button
+                onClick={() => setShowRatesModal(true)}
+                className="flex items-center gap-2 bg-teal-500 text-white px-4 py-2 rounded-lg hover:bg-teal-600 transition transform hover:scale-105"
+                disabled={isLoading}
+              >
+                <Settings size={16} /> กำหนดหน่วย
+              </button>
+            </div>
+            {showAddRoomModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+                <div className="bg-white rounded-xl p-6 w-full max-w-sm relative shadow-xl">
                   <button
                     onClick={() => {
                       setShowAddRoomModal(false);
                       setNewRoom('');
+                      setNewRoomCategory('upper');
                     }}
-                    className="bg-gray-300 text-gray-800 p-2 rounded-md flex-1 hover:bg-gray-400 transition"
+                    className="absolute top-4 right-4 text-gray-600 hover:text-gray-800"
                   >
-                    ยกเลิก
+                    <X size={20} />
                   </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Set Rates Modal */}
-          {showRatesModal && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-4 w-full max-w-xs">
-                <h3 className="text-base font-semibold text-gray-800 mb-3">กำหนดราคาต่อหน่วย</h3>
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-gray-600 text-sm">ค่าไฟ (บาท/หน่วย):</label>
-                    <input
-                      type="number"
-                      value={rates.electricity}
-                      onChange={(e) => setRates({ ...rates, electricity: parseFloat(e.target.value) || 0 })}
-                      className="border border-gray-300 rounded-md p-2 w-full focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-gray-600 text-sm">ค่าน้ำ (บาท/หน่วย):</label>
-                    <input
-                      type="number"
-                      value={rates.water}
-                      onChange={(e) => setRates({ ...rates, water: parseFloat(e.target.value) || 0 })}
-                      className="border border-gray-300 rounded-md p-2 w-full focus:outline-none focus:ring-2 focus:ring-green-500"
-                    />
-                  </div>
-                </div>
-                <div className="flex gap-3 mt-4">
-                  <button
-                    onClick={() => updateRates(rates)}
-                    className="bg-green-600 text-white p-2 rounded-md flex-1 hover:bg-green-700 transition"
-                  >
-                    บันทึก
-                  </button>
-                  <button
-                    onClick={() => setShowRatesModal(false)}
-                    className="bg-gray-300 text-gray-800 p-2 rounded-md flex-1 hover:bg-gray-400 transition"
-                  >
-                    ยกเลิก
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Room Selection */}
-          <div className="mb-4 sm:mb-6">
-            <h2 className="text-lg sm:text-xl font-semibold mb-3 text-gray-700">เลือกห้อง</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {rooms.map((room) => (
-                <div
-                  key={room.id}
-                  className={`bg-white rounded-lg shadow-md p-3 transition transform hover:scale-105 ${
-                    selectedRoom?.id === room.id ? 'border-2 border-purple-500' : ''
-                  }`}
-                >
-                  {editingRoom?.id === room.id ? (
-                    <div className="flex flex-col sm:flex-row items-center gap-2">
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">เพิ่มห้องใหม่</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">ชื่อห้อง</label>
                       <input
                         type="text"
-                        value={editRoomName}
-                        onChange={(e) => setEditRoomName(e.target.value)}
-                        className="border border-gray-300 rounded-md p-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        value={newRoom}
+                        onChange={(e) => setNewRoom(e.target.value)}
+                        placeholder="เช่น ล่าง 1"
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                       />
-                      <div className="flex gap-2 mt-2 sm:mt-0 w-full sm:w-auto">
-                        <button
-                          onClick={() => updateRoom(room.id, editRoomName)}
-                          className="bg-green-600 text-white p-2 rounded-md flex-1 hover:bg-green-700"
-                        >
-                          บันทึก
-                        </button>
-                        <button
-                          onClick={() => setEditingRoom(null)}
-                          className="bg-red-600 text-white p-2 rounded-md flex-1 hover:bg-red-700"
-                        >
-                          ยกเลิก
-                        </button>
-                      </div>
                     </div>
-                  ) : (
                     <div>
-                      <h3
-                        onClick={() => setSelectedRoom(room)}
-                        className="text-base font-semibold text-gray-800 cursor-pointer hover:text-gray-600"
+                      <label className="block text-sm text-gray-600 mb-1">หมวดหมู่</label>
+                      <select
+                        value={newRoomCategory}
+                        onChange={(e) => setNewRoomCategory(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-purple-500"
                       >
-                        {room.name}
-                      </h3>
-                      <div className="flex justify-between mt-2">
-                        <p
-                          onClick={() => setSelectedRoom(room)}
-                          className="text-gray-500 text-sm cursor-pointer hover:text-gray-700"
-                        >
-                          แตะเพื่อบันทึกหน่วย
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              setEditingRoom(room);
-                              setEditRoomName(room.name);
-                            }}
-                            className="text-blue-600 hover:text-blue-800"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => setDeleteConfirm(room)}
-                            className="text-red-600 hover:text-red-800"
-                          >
-                            🗑️
-                          </button>
-                        </div>
-                      </div>
-                      {/* Room History */}
-                      {roomHistory[room.id]?.length > 0 && (
-                        <div className="mt-3">
-                          <h4 className="text-sm font-semibold text-gray-600 mb-2">ประวัติการบันทึก</h4>
-                          <div className="border border-gray-200 rounded-lg">
-                            <table className="w-full text-xs text-gray-600 table-fixed">
-                              <thead className="bg-gray-100 shadow-sm">
-                                <tr>
-                                  <th className="py-2 px-2 text-left w-[30%] sticky top-0 bg-gray-100 z-10">เดือน</th>
-                                  <th className="py-2 px-2 text-left w-[20%] sticky top-0 bg-gray-100 z-10">ประเภท</th>
-                                  <th className="py-2 px-2 text-right w-[30%] sticky top-0 bg-gray-100 z-10">หน่วย</th>
-                                  <th className="py-2 px-2 text-right w-[20%] sticky top-0 bg-gray-100 z-10"></th>
-                                </tr>
-                              </thead>
-                            </table>
-                            <div className="max-h-32 overflow-y-auto">
-                              <table className="w-full text-xs text-gray-600 table-fixed">
-                                <tbody>
-                                  {roomHistory[room.id].map((record) => (
-                                    <tr key={record.id} className="border-t hover:bg-gray-50">
-                                      {editingRecord?.id === record.id ? (
-                                        <td colSpan={4} className="py-2 px-2">
-                                          <div className="flex flex-col sm:flex-row items-center gap-2">
-                                            <input
-                                              type="number"
-                                              value={editRecordValue}
-                                              onChange={(e) => setEditRecordValue(e.target.value)}
-                                              className="border border-gray-300 rounded-md p-2 w-full focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                            />
-                                            <div className="flex gap-2 mt-2 sm:mt-0 w-full sm:w-auto">
-                                              <button
-                                                onClick={() =>
-                                                  updateReading(
-                                                    record.id,
-                                                    room.id,
-                                                    record.type,
-                                                    parseFloat(editRecordValue),
-                                                    record.month
-                                                  )
-                                                }
-                                                className="bg-green-600 text-white p-2 rounded-md flex-1 hover:bg-green-700"
-                                              >
-                                                บันทึก
-                                              </button>
-                                              <button
-                                                onClick={() => setEditingRecord(null)}
-                                                className="bg-red-600 text-white p-2 rounded-md flex-1 hover:bg-red-700"
-                                              >
-                                                ยกเลิก
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </td>
-                                      ) : (
-                                        <>
-                                          <td className="py-2 px-2 w-[30%]">{formatThaiMonth(record.month)}</td>
-                                          <td className="py-2 px-2 w-[20%]">
-                                            <span
-                                              className={`flex items-center gap-1 ${
-                                                record.type === 'electricity' ? 'text-yellow-600' : 'text-blue-600'
-                                              }`}
-                                            >
-                                              {record.type === 'electricity' ? '⚡️' : '💧'}
-                                            </span>
-                                          </td>
-                                          <td className="py-2 px-2 text-right w-[30%]">{record.value.toFixed(2)}</td>
-                                          <td className="py-2 px-2 text-right w-[20%]">
-                                            <button
-                                              onClick={() => {
-                                                setEditingRecord(record);
-                                                setEditRecordValue(record.value);
-                                              }}
-                                              className="text-blue-600 hover:text-blue-800"
-                                            >
-                                              ✏️
-                                            </button>
-                                          </td>
-                                        </>
-                                      )}
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {/* Tabs for Selected Room */}
-                      {selectedRoom?.id === room.id && (
-                        <div className="mt-3 bg-white rounded-lg shadow-inner p-3">
-                          <h2 className="text-base font-semibold mb-3 text-gray-700">
-                            {room.name}
-                          </h2>
-                          <Tabs
-                            value={tabValue}
-                            onChange={(e, newValue) => setTabValue(newValue)}
-                            centered
-                            sx={{ mb: 2 }}
-                          >
-                            <Tab label="บันทึกหน่วย" />
-                            <Tab label="คำนวณค่าใช้จ่าย" />
-                          </Tabs>
-                          <TabPanel value={tabValue} index={0}>
-                            <div className="space-y-3">
-                              <div>
-                                <label className="block text-gray-600 text-sm">หน่วยไฟฟ้า:</label>
-                                <input
-                                  type="number"
-                                  placeholder="หน่วยไฟฟ้า"
-                                  onChange={(e) =>
-                                    setReadings({
-                                      ...readings,
-                                      [room.id]: {
-                                        ...readings[room.id],
-                                        electricity: parseFloat(e.target.value) || 0,
-                                      },
-                                    })
-                                  }
-                                  className="border border-gray-300 rounded-md p-3 text-base w-full focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-gray-600 text-sm">หน่วยน้ำ:</label>
-                                <input
-                                  type="number"
-                                  placeholder="หน่วยน้ำ"
-                                  onChange={(e) =>
-                                    setReadings({
-                                      ...readings,
-                                      [room.id]: {
-                                        ...readings[room.id],
-                                        water: parseFloat(e.target.value) || 0,
-                                      },
-                                    })
-                                  }
-                                  className="border border-gray-300 rounded-md p-3 text-base w-full focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-gray-600 text-sm">เดือน:</label>
-                                <DatePicker
-                                  value={selectedMonth[room.id] || null}
-                                  onChange={(date) =>
-                                    setSelectedMonth({ ...selectedMonth, [room.id]: date })
-                                  }
-                                  views={['month', 'year']}
-                                  format="MMMM yyyy"
-                                  slotProps={{
-                                    textField: {
-                                      placeholder: 'เลือกเดือน',
-                                      size: 'small',
-                                      fullWidth: true,
-                                      sx: {
-                                        '& .MuiInputBase-root': {
-                                          fontSize: '14px',
-                                          padding: '8px',
-                                        },
-                                      },
-                                    },
-                                    popper: {
-                                      placement: 'top-start',
-                                      modifiers: [
-                                        {
-                                          name: 'preventOverflow',
-                                          options: {
-                                            rootBoundary: 'viewport',
-                                            tether: false,
-                                            altAxis: true,
-                                          },
-                                        },
-                                      ],
-                                    },
-                                  }}
-                                />
-                              </div>
-                              <div className="flex flex-col sm:flex-row gap-2">
-                                <button
-                                  onClick={() => {
-                                    const month = formatDateToMonthYear(selectedMonth[room.id] || new Date());
-                                    if (readings[room.id]?.electricity) {
-                                      recordReading(
-                                        room.id,
-                                        'electricity',
-                                        readings[room.id].electricity,
-                                        month
-                                      );
-                                    }
-                                    if (readings[room.id]?.water) {
-                                      recordReading(
-                                        room.id,
-                                        'water',
-                                        readings[room.id].water,
-                                        month
-                                      );
-                                    }
-                                  }}
-                                  className="bg-purple-600 text-white p-3 rounded-md w-full hover:bg-purple-700 transition"
-                                >
-                                  บันทึกหน่วย
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setSelectedRoom(null);
-                                    setSelectedMonth((prev) => ({ ...prev, [room.id]: null }));
-                                    setCalculationMonths((prev) => ({ ...prev, [room.id]: null }));
-                                    setCalculationResult(null);
-                                    setTabValue(0);
-                                  }}
-                                  className="bg-red-600 text-white p-3 rounded-md w-full hover:bg-red-700 transition"
-                                >
-                                  ยกเลิก
-                                </button>
-                              </div>
-                            </div>
-                          </TabPanel>
-                          <TabPanel value={tabValue} index={1}>
-                            <div className="space-y-3">
-                              <div>
-                                <label className="block text-gray-600 text-sm">เดือนแรก:</label>
-                                <DatePicker
-                                  value={calculationMonths[room.id]?.firstMonth || null}
-                                  onChange={(date) =>
-                                    setCalculationMonths({
-                                      ...calculationMonths,
-                                      [room.id]: {
-                                        firstMonth: date,
-                                        secondMonth: calculationMonths[room.id]?.secondMonth || null,
-                                      },
-                                    })
-                                  }
-                                  views={['month', 'year']}
-                                  format="MMMM yyyy"
-                                  slotProps={{
-                                    textField: {
-                                      placeholder: 'เลือกเดือนแรก',
-                                      size: 'small',
-                                      fullWidth: true,
-                                      sx: {
-                                        '& .MuiInputBase-root': {
-                                          fontSize: '14px',
-                                          padding: '8px',
-                                        },
-                                      },
-                                    },
-                                    popper: {
-                                      placement: 'top-start',
-                                      modifiers: [
-                                        {
-                                          name: 'preventOverflow',
-                                          options: {
-                                            rootBoundary: 'viewport',
-                                            tether: false,
-                                            altAxis: true,
-                                          },
-                                        },
-                                      ],
-                                    },
-                                  }}
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-gray-600 text-sm">เดือนที่สอง:</label>
-                                <DatePicker
-                                  value={calculationMonths[room.id]?.secondMonth || null}
-                                  onChange={(date) =>
-                                    setCalculationMonths({
-                                      ...calculationMonths,
-                                      [room.id]: {
-                                        firstMonth: calculationMonths[room.id]?.firstMonth || null,
-                                        secondMonth: date,
-                                      },
-                                    })
-                                  }
-                                  views={['month', 'year']}
-                                  format="MMMM yyyy"
-                                  slotProps={{
-                                    textField: {
-                                      placeholder: 'เลือกเดือนที่สอง',
-                                      size: 'small',
-                                      fullWidth: true,
-                                      sx: {
-                                        '& .MuiInputBase-root': {
-                                          fontSize: '14px',
-                                          padding: '8px',
-                                        },
-                                      },
-                                    },
-                                    popper: {
-                                      placement: 'top-start',
-                                      modifiers: [
-                                        {
-                                          name: 'preventOverflow',
-                                          options: {
-                                            rootBoundary: 'viewport',
-                                            tether: false,
-                                            altAxis: true,
-                                          },
-                                        },
-                                      ],
-                                    },
-                                  }}
-                                />
-                              </div>
-                              <button
-                                onClick={() => calculateUsageAndCost(room.id)}
-                                className="bg-blue-600 text-white p-3 rounded-md w-full hover:bg-blue-700 transition"
-                              >
-                                คำนวณ
-                              </button>
-                              {calculationResult && (
-                                <div className="bg-gray-50 p-3 rounded-md">
-                                  <h4 className="text-sm font-semibold text-gray-600 mb-2">
-                                    ผลลัพธ์: {calculationResult.firstMonth} ถึง {calculationResult.secondMonth}
-                                  </h4>
-                                  <div className="space-y-2">
-                                    <p className="text-sm text-gray-700">
-                                      <span className="text-yellow-600">⚡️ ไฟฟ้า:</span> ใช้{' '}
-                                      {calculationResult.electricity.usage.toFixed(2)} หน่วย, ค่าใช้จ่าย{' '}
-                                      {calculationResult.electricity.cost.toFixed(2)} บาท
-                                    </p>
-                                    <p className="text-sm text-gray-700">
-                                      <span className="text-blue-600">💧 น้ำ:</span> ใช้{' '}
-                                      {calculationResult.water.usage.toFixed(2)} หน่วย, ค่าใช้จ่าย{' '}
-                                      {calculationResult.water.cost.toFixed(2)} บาท
-                                    </p>
-                                    <p className="text-sm text-gray-700 font-semibold">
-                                      <span className="text-green-600">💸 รวมทั้งหมด:</span>{' '}
-                                      {(calculationResult.electricity.cost + calculationResult.water.cost).toFixed(2)} บาท
-                                    </p>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </TabPanel>
-                        </div>
-                      )}
+                        <option value="upper">ชั้นบน</option>
+                        <option value="lower">ชั้นล่าง</option>
+                      </select>
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Delete Confirmation Modal */}
-          {deleteConfirm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-4 w-full max-w-xs">
-                <h3 className="text-base font-semibold text-gray-800 mb-3">
-                  ยืนยันการลบห้อง {deleteConfirm.name}
-                </h3>
-                <p className="text-sm text-gray-600 mb-4">
-                  การลบห้องจะลบประวัติหน่วยไฟฟ้าและน้ำทั้งหมดของห้องนี้ด้วย คุณแน่ใจหรือไม่?
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => deleteRoom(deleteConfirm.id)}
-                    className="bg-red-600 text-white p-2 rounded-md flex-1 hover:bg-red-700 transition"
-                  >
-                    ลบ
-                  </button>
-                  <button
-                    onClick={() => setDeleteConfirm(null)}
-                    className="bg-gray-300 text-gray-800 p-2 rounded-md flex-1 hover:bg-gray-400 transition"
-                  >
-                    ยกเลิก
-                  </button>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={addRoom}
+                        className="flex-1 bg-purple-600 text-white py-2 rounded-lg hover:bg-purple-700 transition transform hover:scale-105"
+                        disabled={isLoading}
+                      >
+                        {isLoading ? <LoadingSpinner /> : 'บันทึก'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowAddRoomModal(false);
+                          setNewRoom('');
+                          setNewRoomCategory('upper');
+                        }}
+                        className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300 transition transform hover:scale-105"
+                        disabled={isLoading}
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
+                  </div>
                 </div>
               </div>
+            )}
+            {showRatesModal && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+                <div className="bg-white rounded-xl p-6 w-full max-w-sm relative shadow-xl">
+                  <button
+                    onClick={() => setShowRatesModal(false)}
+                    className="absolute top-4 right-4 text-gray-600 hover:text-gray-800"
+                  >
+                    <X size={20} />
+                  </button>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-4">กำหนดราคาต่อหน่วย</h3>
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">ค่าไฟ (บาท/หน่วย)</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={rates.electricity}
+                        onChange={(e) => setRates({ ...rates, electricity: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-gray-600 mb-1">ค่าน้ำ (บาท/หน่วย)</label>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        value={rates.water}
+                        onChange={(e) => setRates({ ...rates, water: parseFloat(e.target.value) || 0 })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-lg text-gray-500 focus:outline-none focus:ring-2 focus:ring-teal-500"
+                      />
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => updateRates(rates)}
+                        className="flex-1 bg-teal-500 text-white py-2 rounded-lg hover:bg-teal-600 transition transform hover:scale-105"
+                        disabled={isLoading}
+                      >
+                        {isLoading ? <LoadingSpinner /> : 'บันทึก'}
+                      </button>
+                      <button
+                        onClick={() => setShowRatesModal(false)}
+                        className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300 transition transform hover:scale-105"
+                        disabled={isLoading}
+                      >
+                        ยกเลิก
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="mb-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4">เลือกห้อง</h2>
+              {isLoading && <LoadingSpinner />}
+              {upperRooms.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-3">ชั้นบน</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {upperRooms.map(renderRoomCard)}
+                  </div>
+                </div>
+              )}
+              {lowerRooms.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-700 mb-3">ชั้นล่าง</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {lowerRooms.map(renderRoomCard)}
+                  </div>
+                </div>
+              )}
+              {upperRooms.length === 0 && lowerRooms.length === 0 && !isLoading && (
+                <p className="text-gray-500 text-center text-sm">ยังไม่มีห้อง กรุณาเพิ่มห้องใหม่</p>
+              )}
             </div>
-          )}
+            {deleteConfirm && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in">
+                <div className="bg-white rounded-xl p-6 w-full max-w-sm relative shadow-xl">
+                  <button
+                    onClick={() => setDeleteConfirm(null)}
+                    className="absolute top-4 right-4 text-gray-600 hover:text-gray-800"
+                  >
+                    <X size={20} />
+                  </button>
+                  <h3 className="text-lg font-semibold text-gray-800 mb-3">ยืนยันการลบห้อง {deleteConfirm.name}</h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                    การลบห้องจะลบประวัติหน่วยไฟฟ้าและน้ำทั้งหมดของห้องนี้ด้วย คุณแน่ใจหรือไม่?
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => deleteRoom(deleteConfirm.id)}
+                      className="flex-1 bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 transition transform hover:scale-105"
+                      disabled={isLoading}
+                    >
+                      {isLoading ? <LoadingSpinner /> : 'ลบ'}
+                    </button>
+                    <button
+                      onClick={() => setDeleteConfirm(null)}
+                      className="flex-1 bg-gray-200 text-gray-800 py-2 rounded-lg hover:bg-gray-300 transition transform hover:scale-105"
+                      disabled={isLoading}
+                    >
+                      ยกเลิก
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </LocalizationProvider>
     </ThemeProvider>
