@@ -93,6 +93,7 @@ export default function Home() {
   const [roomHistory, setRoomHistory] = useState({});
   const [editingRecord, setEditingRecord] = useState(null);
   const [editRecordValue, setEditRecordValue] = useState('');
+  const [editRecordMonth, setEditRecordMonth] = useState(null);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [showAddRoomModal, setShowAddRoomModal] = useState(false);
   const [showRatesModal, setShowRatesModal] = useState(false);
@@ -136,7 +137,7 @@ export default function Home() {
   async function fetchRoomHistory(roomId) {
     const { data, error } = await supabase
       .from('readings')
-      .select('id, type, value, month, usage, cost')
+      .select('id, type, value, month, usage, cost, recorded_at')
       .eq('room_id', roomId)
       .order('month', { ascending: false });
     if (error) {
@@ -268,6 +269,7 @@ export default function Home() {
         month,
         usage,
         cost,
+        recorded_at: new Date().toISOString(),
       });
 
     if (error) {
@@ -284,18 +286,23 @@ export default function Home() {
   }
 
   // Update meter reading
-  async function updateReading(recordId, roomId, type, newValue, month) {
+  async function updateReading(recordId, roomId, type, newValue, newMonth) {
     if (!newValue || newValue < 0) {
       toast.error(`กรุณากรอกหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}ที่ถูกต้อง`, { icon: <X size={16} /> });
       return;
     }
+    if (!newMonth) {
+      toast.error('กรุณาเลือกเดือนที่ถูกต้อง', { icon: <X size={16} /> });
+      return;
+    }
     setIsLoading(true);
+    const newMonthStr = formatDateToMonthYear(newMonth);
     const { data: prevReading } = await supabase
       .from('readings')
       .select('value')
       .eq('room_id', roomId)
       .eq('type', type)
-      .eq('month', getPreviousMonth(month))
+      .eq('month', getPreviousMonth(newMonthStr))
       .single();
 
     const prevValue = prevReading?.value || 0;
@@ -306,8 +313,10 @@ export default function Home() {
       .from('readings')
       .update({
         value: newValue,
+        month: newMonthStr,
         usage,
         cost,
+        recorded_at: new Date().toISOString(),
       })
       .eq('id', recordId);
 
@@ -317,16 +326,24 @@ export default function Home() {
       return;
     }
 
-    const nextMonth = getNextMonth(month);
+    const nextMonthStr = getNextMonth(newMonthStr);
     const { data: nextReading } = await supabase
       .from('readings')
-      .select('id, value')
+      .select('id, value, month')
       .eq('room_id', roomId)
       .eq('type', type)
-      .eq('month', nextMonth)
+      .eq('month', nextMonthStr)
       .single();
 
     if (nextReading) {
+      const nextPrevReading = await supabase
+        .from('readings')
+        .select('value')
+        .eq('room_id', roomId)
+        .eq('type', type)
+        .eq('month', getPreviousMonth(nextMonthStr))
+        .single();
+      const nextPrevValue = nextPrevReading.data?.value || 0;
       const nextUsage = nextReading.value - newValue;
       const nextCost = nextUsage * (type === 'electricity' ? rates.electricity : rates.water);
       const { error: nextError } = await supabase
@@ -346,6 +363,7 @@ export default function Home() {
     fetchRoomHistory(roomId);
     setEditingRecord(null);
     setEditRecordValue('');
+    setEditRecordMonth(null);
     toast.success(`แก้ไขหน่วย${type === 'electricity' ? 'ไฟฟ้า' : 'น้ำ'}สำเร็จ`, { icon: <Check size={16} /> });
     setIsLoading(false);
   }
@@ -474,24 +492,39 @@ export default function Home() {
     }
   }
 
-  // Format month to Thai with Buddhist Era
+  // Format month to Thai with Buddhist Era (abbreviated)
   function formatThaiMonth(month) {
     const [year, monthNum] = month.split('-');
     const thaiMonths = [
-      'มกราคม',
-      'กุมภาพันธ์',
-      'มีนาคม',
-      'เมษายน',
-      'พฤษภาคม',
-      'มิถุนายน',
-      'กรกฎาคม',
-      'สิงหาคม',
-      'กันยายน',
-      'ตุลาคม',
-      'พฤศจิกายน',
-      'ธันวาคม',
+      'ม.ค.',
+      'ก.พ.',
+      'มี.ค.',
+      'เม.ย.',
+      'พ.ค.',
+      'มิ.ย.',
+      'ก.ค.',
+      'ส.ค.',
+      'ก.ย.',
+      'ต.ค.',
+      'พ.ย.',
+      'ธ.ค.',
     ];
     return `${thaiMonths[parseInt(monthNum) - 1]} ${parseInt(year) + 543}`;
+  }
+
+  // Format recorded_at to Thai date and time
+  function formatRecordedAt(dateStr) {
+    const date = new Date(dateStr);
+    const options = {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone: 'Asia/Bangkok',
+    };
+    return date.toLocaleString('th-TH', options).replace('เวลา', 'เมื่อ');
   }
 
   // Get previous month
@@ -602,10 +635,12 @@ export default function Home() {
                 <table className="w-full text-xs text-gray-600 table-fixed">
                   <thead className="bg-gray-50 sticky top-0 z-10">
                     <tr>
-                      <th className="py-2 px-3 text-left w-[40%]">เดือน</th>
-                      <th className="py-2 px-3 text-left w-[20%]">ประเภท</th>
-                      <th className="py-2 px-3 text-right w-[20%]">หน่วย</th>
-                      <th className="py-2 px-3 text-right w-[20%]"></th>
+                      <th className="py-2 px-3 text-left w-[16.67%]">ประจำเดือน</th>
+                      <th className="py-2 px-3 text-left w-[16.67%]">ออกบิลเดือน</th>
+                      <th className="py-2 px-3 text-left w-[16.67%]">ประเภท</th>
+                      <th className="py-2 px-3 text-right w-[16.67%]">หน่วย</th>
+                      <th className="py-2 px-3 text-left w-[16.67%]">บันทึกเมื่อ</th>
+                      <th className="py-2 px-3 text-right w-[16.67%]"></th>
                     </tr>
                   </thead>
                 </table>
@@ -618,8 +653,28 @@ export default function Home() {
                           className={`border-t ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-gray-100`}
                         >
                           {editingRecord?.id === record.id ? (
-                            <td colSpan={4} className="py-2 px-3">
+                            <td colSpan={6} className="py-2 px-3">
                               <div className="flex items-center gap-2">
+                                <DatePicker
+                                  value={editRecordMonth || null}
+                                  onChange={(date) => setEditRecordMonth(date)}
+                                  views={['month', 'year']}
+                                  format="MMMM yyyy"
+                                  slotProps={{
+                                    textField: {
+                                      placeholder: 'เลือกเดือน',
+                                      size: 'small',
+                                      fullWidth: false,
+                                      sx: {
+                                        '& .MuiInputBase-root': {
+                                          fontSize: '14px',
+                                          padding: '8px',
+                                          width: '150px',
+                                        },
+                                      },
+                                    },
+                                  }}
+                                />
                                 <input
                                   type="number"
                                   inputMode="numeric"
@@ -635,7 +690,7 @@ export default function Home() {
                                       room.id,
                                       record.type,
                                       parseFloat(editRecordValue),
-                                      record.month
+                                      editRecordMonth
                                     )
                                   }
                                   className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"
@@ -644,7 +699,11 @@ export default function Home() {
                                   {isLoading ? <LoadingSpinner /> : <Check size={16} />}
                                 </button>
                                 <button
-                                  onClick={() => setEditingRecord(null)}
+                                  onClick={() => {
+                                    setEditingRecord(null);
+                                    setEditRecordValue('');
+                                    setEditRecordMonth(null);
+                                  }}
                                   className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"
                                   disabled={isLoading}
                                 >
@@ -654,8 +713,9 @@ export default function Home() {
                             </td>
                           ) : (
                             <>
-                              <td className="py-2 px-3 w-[40%]">{formatThaiMonth(record.month)}</td>
-                              <td className="py-2 px-3 w-[20%]">
+                              <td className="py-2 px-3 w-[16.67%]">{formatThaiMonth(record.month)}</td>
+                              <td className="py-2 px-3 w-[16.67%]">{formatThaiMonth(getNextMonth(record.month))}</td>
+                              <td className="py-2 px-3 w-[16.67%]">
                                 <span
                                   className={`flex items-center gap-1 ${
                                     record.type === 'electricity' ? 'text-yellow-600' : 'text-blue-600'
@@ -664,14 +724,18 @@ export default function Home() {
                                   {record.type === 'electricity' ? '⚡️ไฟ' : '💧น้ำ'}
                                 </span>
                               </td>
-                              <td className="py-2 px-3 text-right w-[20%]">
+                              <td className="py-2 px-3 text-right w-[16.67%]">
                                 {record.value.toFixed(2)}
                               </td>
-                              <td className="py-2 px-3 text-right w-[20%]">
+                              <td className="py-2 px-3 w-[16.67%]">
+                                {record.recorded_at ? formatRecordedAt(record.recorded_at) : '-'}
+                              </td>
+                              <td className="py-2 px-3 text-right w-[16.67%]">
                                 <button
                                   onClick={() => {
                                     setEditingRecord(record);
                                     setEditRecordValue(record.value.toString());
+                                    setEditRecordMonth(new Date(record.month.split('-')[0], parseInt(record.month.split('-')[1]) - 1));
                                   }}
                                   className="text-purple-600 hover:text-purple-800"
                                 >
